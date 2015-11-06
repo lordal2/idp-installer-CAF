@@ -382,7 +382,6 @@ installEPTIDSupport ()
 					${Echo} "Detected no MySQL, adding repos into /etc/yum.repos.d/ and updating them"
 					mysqlOracleRepo="rpm -Uvh http://repo.mysql.com/mysql-community-release-el7.rpm"
 					eval $mysqlOracleRepo >> ${statusFile} 2>&1
-
 				else
 					${Echo} "Dected MySQL Repo EXIST on this system."
 
@@ -1367,7 +1366,6 @@ applyFTICKS ()
 	# B. overlay new audit.xml, logback.xml so bean and technique is in place (make backup first)
 	overlayFiles="audit.xml logback.xml"
 	for i in ${overlayFiles}; do
-
 		cp /opt/shibboleth-idp/conf/${i} /opt/shibboleth-idp/conf/${i}.b4.replacement
 		cp ${Spath}/files/${my_ctl_federation}/${i}.template /opt/shibboleth-idp/conf/${i}
 	done

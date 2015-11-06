@@ -873,12 +873,17 @@ installer_section3_title:
                   <input  style="width: 250px;" id="user_field" type="text" placeholder="e.g. samaccountname" onchange="updateCtx(this)" >
                   <BR>
                  
-                  LDAP released attributes
+             <!--     LDAP released attributes
                   <img id="ldap_attrToolTip" src="../img/icon_tooltip.gif" alt="ToolTip"
           rel="tooltip" title="List of LDAP released attributes"
            />
            :                  <input  style="width: 250px;" id="ldap_attr" type="text" placeholder="e.g. cn,mail" onchange="updateCtx(this)" >
                   <BR>
+                 
+                 -->
+               <!-- hidden value of common name for this field -->
+               <input   id="ldap_attr" type="hidden" value="cn" >
+
                   LDAP Subtree search?
 <img id="subsearchToolTip" src="../img/icon_tooltip.gif" alt="ToolTip" 
           rel="tooltip" title="Subtree search describes whether or not the entire tree is searched for a user or just that node and no further.  Subtree is recommended unless your directory design requires otherwise."

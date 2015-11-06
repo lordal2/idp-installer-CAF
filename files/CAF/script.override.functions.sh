@@ -162,9 +162,9 @@ patchShibbolethConfigs ()
 	fi
 
 	if [ "${fticks}" != "n" ]; then
-		patch /opt/shibboleth-idp/conf/logback.xml -i ${Spath}/xml/CAF/fticks.diff >> ${statusFile} 2>&1
-		touch /opt/shibboleth-idp/conf/fticks-key.txt
-		chown ${jettyUser}: /opt/shibboleth-idp/conf/fticks-key.txt
+		
+		applyFTICKS
+
 	fi
 
 	if [ "${eptid}" != "n" ]; then
