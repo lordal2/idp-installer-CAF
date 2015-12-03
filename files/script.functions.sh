@@ -102,6 +102,189 @@ setVarIdPScope ()
 	idpScope="${freeRADIUS_realm}"
 }
 
+updateJavaAlternatives() {
+	for i in `ls $JAVA_HOME/bin/`; do
+		rm -f /var/lib/alternatives/$i
+		update-alternatives --install /usr/bin/$i $i $JAVA_HOME/bin/$i 100
+		update-alternatives --set $i $JAVA_HOME/bin/$i
+	done
+}
+
+installOracleJava () {
+	javaType=$1
+
+	if [ "${javaType}" != "jdk" ]; then
+		javaType="jre"
+	fi
+
+	javaSrc="${javaType}-${javaName}-linux-x64.tar.gz"
+	javaDownloadLink="http://download.oracle.com/otn-pub/java/jdk/${javaBuildName}/${javaSrc}"
+	jceDownloadLink="http://download.oracle.com/otn-pub/java/jce/${javaMajorVersion}/${jcePolicySrc}"
+
+	# force the latest java onto the system to ensure latest is available for all operations.
+	# including the calculation of JAVA_HOME to be what this script sees on the system, not what a stale environment may have
+
+	if [ -L "/usr/java/default" -a -d "/usr/java/${javaType}${javaVer}" ]; then
+		export JAVA_HOME=/usr/java/default
+		${Echo} "Detected Java allready installed in ${JAVA_HOME}."
+
+		if [ -z "`readlink -e /usr/bin/java | grep \"${javaType}${javaVer}\"`" ]; then
+			${Echo} "${JAVA_HOME} not used as default java. Updating system links.".
+			updateJavaAlternatives
+		fi
+	else
+		${Echo} "Oracle java not detected."
+
+		unset JAVA_HOME
+
+		# Download if needed and install from src
+		${Echo} "Downloading java."
+		if [ ! -s "${downloadPath}/${javaSrc}" ]; then
+			${fetchCmd} ${downloadPath}/${javaSrc} -j -L -H "Cookie: oraclelicense=accept-securebackup-cookie" ${javaDownloadLink} 2>&1
+		fi
+
+		${Echo} "Unpacking java and setting up symlinks."
+		if [ ! -d "/usr/java" ]; then
+			mkdir /usr/java
+		fi
+		tar xzf ${downloadPath}/${javaSrc} -C /usr/java/
+		unpackRet=$?
+
+		if [ "${unpackRet}" -ne 0 ]; then
+			${Echo} "Unpacking java failed, aborting script."
+			rm -r /usr/java/${javaType}${javaVer}/
+			return 1
+		fi
+
+		if [ -d "/usr/java/latest" ]; then
+			mv /usr/java/latest /usr/java/latest.old
+		fi
+		if [ -s "/usr/java/latest" ]; then
+			rm -f /usr/java/latest
+		fi
+		ln -s /usr/java/${javaType}${javaVer}/ /usr/java/latest
+
+		if [ -d "/usr/java/default" ]; then
+			mv /usr/java/default /usr/java/default.old
+		fi
+		if [ -s "/usr/java/default" ]; then
+			rm -f /usr/java/default
+		fi
+		ln -s /usr/java/latest /usr/java/default
+
+		export JAVA_HOME="/usr/java/default"
+		export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+		# Set the alternatives
+		updateJavaAlternatives
+
+		echo "***javahome is: ${JAVA_HOME}"
+	fi
+
+
+	# Regardless of origin, let's validate it's existence then ensure it's in our .bashrc and our path
+
+	${JAVA_HOME}/bin/java -version 2>&1
+	retval=$?
+
+	if [ "${retval}" -ne 0 ]; then
+		${Echo} "\n\n\nAn error has occurred in the configuration of the JAVA_HOME variable."
+		${Echo} "Please review the java installation log to see what went wrong."
+		return 1
+	else
+
+		${Echo} "\n\n\nJAVA_HOME version verified as good."
+		jEnvString="export JAVA_HOME=${JAVA_HOME}"
+
+		if [ -z "`grep 'JAVA_HOME' /root/.bashrc`" ]; then
+
+			${Echo} "${jEnvString}" >> /root/.bashrc
+			${Echo} "\n\n\nJAVA_HOME added to end of /root/.bashrc"
+
+		else
+			if [ "`grep "export JAVA_HOME" /root/.bashrc | tail -n1`" != "${jEnvString}" ]; then
+				${Echo} "${jEnvString}" >> /root/.bashrc
+				${Echo} "\n\n\n***EXISTING JAVA_HOME DETECTED AND OVERRIDDEN!***"
+				${Echo} "\nA new JAVA_HOME has been appended to end of /root/.bashrc to ensure the latest javahome is used. Hand edit as needed\n\n"
+			fi
+
+		fi
+
+		# Ensure the java is in our execution path both in execution AND in the .bashrc
+
+		if [ -z "`grep PATH /root/.bashrc | grep \"${JAVA_HOME}/bin\"`" ]; then
+			${Echo} "export PATH=${PATH}:${JAVA_HOME}/bin" >> /root/.bashrc
+			${Echo} "\n\n\nUpdated PATH to add java bin dir at end of /root/.bashrc"
+			export PATH=${PATH}:${JAVA_HOME}/bin
+		fi
+
+	fi
+
+
+	JCETestCmd="java -classpath ${downloadPath} checkJCEStrength"
+
+	${Echo} "Testing Java Cryptography Extensions"
+	JCETestResults=$(eval ${JCETestCmd})
+
+	if [ "${JCETestResults}" == "${JCEUnlimitedResponse}" ]; then
+		${Echo} "Java Cryptography Extensions alredy installed."
+	else
+		${Echo} "Setting Java Cryptography Extensions to unlimited strength"
+
+		# Backup originals
+		JCEBkp1="local_policy.jar"
+		JCEBkp2="US_export_policy.jar"
+		JCEBkp1Path="${JAVA_HOME}/lib/security/${JCEBkp1}"
+		JCEBkp2Path="${JAVA_HOME}/lib/security/${JCEBkp2}"
+		JCEBkpPostfix=`date +%F-%s`
+		${Echo} "Backing up ${JCEBkp1} and ${JCEBkp1} from ${JAVA_HOME} to ${Spath}"
+		if [ "${javaType}" == "jdk" ]; then
+			JCEBkp1Path="${JAVA_HOME}/jre/lib/security/${JCEBkp1}"
+			JCEBkp2Path="${JAVA_HOME}/jre/lib/security/${JCEBkp2}"
+		fi
+		cp ${JCEBkp1Path} ${Spath}/${JCEBkp1}-${JCEBkpPostfix}
+		cp ${JCEBkp2Path} ${Spath}/${JCEBkp2}-${JCEBkpPostfix}
+
+		# Fetch new policy file
+		if [ ! -s "${downloadPath}/${jcePolicySrc}" ]; then
+			${Echo} "Fetching Java Cryptography Extensions from Oracle"
+			${fetchCmd} ${downloadPath}/${jcePolicySrc} -j -L -H "Cookie: oraclelicense=accept-securebackup-cookie" ${jceDownloadLink} 2>&1
+		fi
+
+		# Extract locally into downloads directory
+		unzip -o ${downloadPath}/${jcePolicySrc} -d ${downloadPath}
+		jceUnpacRet=$?
+		if [ "${jceUnpacRet}" -ne "0" ]; then
+			${Echo} "**Unpacking Java Cryptography Extensions update failed!**"
+			${Echo} "**Install will succeed but you will not operate at full crypto strength **"
+			${Echo} "**Some Service Providers will fail to negotiate.**"
+			return 0
+		fi
+
+		# copy into place
+		${Echo} "Putting Java Cryptography Extensions from Oracle into ${JAVA_HOME}/lib/security/"
+
+		JCEWorkingDir="${downloadPath}/UnlimitedJCEPolicyJDK8"
+		cp ${JCEWorkingDir}/${JCEBkp1} ${JCEBkp1Path}
+		cp ${JCEWorkingDir}/${JCEBkp2} ${JCEBkp2Path}
+
+		${Echo} "Testing Java Cryptography Extensions"
+		JCETestResults=$(eval ${JCETestCmd})
+
+		if [ "${JCETestResults}" == "${JCEUnlimitedResponse}" ]; then
+			${Echo} "Java Cryptography Extensions update succeeded"
+		else
+			${Echo} "**Java Cryptography Extensions update failed! rolling back using backups**"
+			${Echo} "**Install will succeed but you will not operate at full crypto strength **"
+			${Echo} "**Some Service Providers will fail to negotiate.**"
+
+			cp ${downloadPath}/${JCEBkp1}-${JCEBkpPostfix} ${JCEBkp1Path}
+			cp ${downloadPath}/${JCEBkp2}-${JCEBkpPostfix} ${JCEBkp2Path}
+		fi
+	fi
+
+	return 0
+}
+
 setJavaHome () {
 
         # force the latest java onto the system to ensure latest is available for all operations.
@@ -109,80 +292,16 @@ setJavaHome () {
 
         # June 23, 2015, altering java detection behaviour to be more platform agnostic
 
-	if [ -L "/usr/java/default" -a -d "/usr/java/jre${javaVer}" ]; then
-		
-                export JAVA_HOME=/usr/java/default
-                ${Echo} "Detected Java allready installed in ${JAVA_HOME}."
+	installOracleJava
+	retval=$?
 
-				# return 0  This is not accurate, we need to prepare the host for java settings regardless.
-	else
-
-		${Echo} "Java not detected, downloading and installing.."
-
-        unset JAVA_HOME
-
-        #Install from src
-        javaSrc="jre-8u25-linux-x64.tar.gz"
-        if [ ! -s "${downloadPath}/${javaSrc}" ]; then
-                ${fetchCmd} ${downloadPath}/${javaSrc} -j -L -H "Cookie: oraclelicense=accept-securebackup-cookie"  https://download.oracle.com/otn-pub/java/jdk/8u25-b17/${javaSrc} >> ${statusFile} 2>&1
-        fi
-        if [ ! -d "/usr/java" ]; then
-		mkdir /usr/java
+	if [ "${retval}" -ne 0 ]; then
+		${Echo} "\n\n\nAn error has occurred in the configuration of the JAVA_HOME variable."
+		${Echo} "Please review the java installation and status.log to see what went wrong."
+		${Echo} "Install is aborted until this is resolved."
+		cleanBadInstall
+		exit
 	fi
-        tar xzf ${downloadPath}/${javaSrc} -C /usr/java/
-        ln -s /usr/java/jre${javaVer}/ /usr/java/latest
-        ln -s /usr/java/latest /usr/java/default
-        export JAVA_HOME="/usr/java/default"
-		export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-        #Set the alternatives
-        for i in `ls $JAVA_HOME/bin/`; do rm -f /var/lib/alternatives/$i;update-alternatives --install /usr/bin/$i $i $JAVA_HOME/bin/$i 100; done
-        for i in `ls $JAVA_HOME/bin/`;do update-alternatives --set $i $JAVA_HOME/bin/$i; done
-
-        echo "***javahome is: ${JAVA_HOME}"
-        # validate java_home and ensure it runs as expected before going any further
-        
-    fi
-
-    	# Regardless of origin, let's validate it's existence then ensure it's in our .bashrc and our path
-
-
-        ${JAVA_HOME}/bin/java -version >> ${statusFile} 2>&1
-		retval=$?
-
-        if [ "${retval}" -ne 0 ]; then
-                ${Echo} "\n\n\nAn error has occurred in the configuration of the JAVA_HOME variable."
-                ${Echo} "Please review the java installation and status.log to see what went wrong."
-                ${Echo} "Install is aborted until this is resolved."
-                cleanBadInstall
-                exit
-        else
-
-                ${Echo} "\n\n\n JAVA_HOME version verified as good."
-                jEnvString="export JAVA_HOME=${JAVA_HOME}"
-
-                 if [ -z "`grep 'JAVA_HOME' /root/.bashrc`" ]; then
-
-                         ${Echo} "${jEnvString}" >> /root/.bashrc
-                         ${Echo} "\n\n\n JAVA_HOME added to end of /root/.bashrc"
-
-                 else
-
-                         ${Echo} "${jEnvString}" >> /root/.bashrc
-                         ${Echo} "\n\n\n ***EXISTING JAVA_HOME DETECTED AND OVERRIDDEN!***"
-                         ${Echo} "\n A new JAVA_HOME has been appended to end of /root/.bashrc to ensure the latest javahome is used. Hand edit as needed\n\n"
-
-                 fi
-
-                 # Ensure the java is in our execution path both in execution AND in the .bashrc
-                 
-                 jEnvPathString="export PATH=${PATH}:${JAVA_HOME}/bin"
-                 ${Echo} "${jEnvPathString}" >> /root/.bashrc
-                 ${Echo} "\n\n\n Updated PATH to add java bin dir at end of /root/.bashrc"
-
-                 export PATH=${PATH}:${JAVA_HOME}/bin
-
-        fi
-
 }
 
 setJavaCACerts ()
@@ -1590,9 +1709,6 @@ invokeShibbolethInstallProcessJetty9 ()
 	setVarIdPScope
 	
 	setJavaCACerts
-
-	setJavaCryptographyExtensions
-
 
 	generatePasswordsForSubsystems
 
