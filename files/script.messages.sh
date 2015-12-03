@@ -14,10 +14,11 @@ idpInstallerBase="/opt/idp-installer"
 #
 # Key Component Versions
 
-shibVer="3.1.2"
+shibVer="3.2.0"
 casVer="3.3.3"
 mysqlConVer="5.1.35"
-jettyVer="9.2.13.v20150730"
+jettyVer="9.2.14.v20151106"
+# uncomment if you want an older jetty version: jettyVer="9.2.13.v20150730"
 
 javaBuildName="8u65-b17"
 javaName="8u65"
@@ -32,6 +33,19 @@ JCEUnlimitedResponse="2147483647"
 jettyBaseURL="http://download.eclipse.org/jetty/${jettyVer}/dist/"
 # this determines which file to check for in the downloads directory first.
 jetty9File="jetty-distribution-${jettyVer}.tar.gz"
+
+jettyBasePath="/opt/${shibDir}/jetty-base"
+
+# Prior to Shibboleth v3.2.0 the jettyBasePath is as above, otherwise it's this one below
+if [ "${shibVer}" == "3.2.0" ]; then
+	jettyBasePath="/opt/${shibDir}/embedded/jetty-base"
+	# as well, it is also missing the the tmp and logs directories which we will take care of 
+	# in the method to set up things.
+
+fi
+
+
+
 
 files=""
 ts=`date "+%s"`
@@ -101,9 +115,9 @@ BackTitleCAF="Canadian Access Federation"
 BackTitle="IDP Deployer"
 
 # define commands
-ubuntuCmdU="apt-get update"
+ubuntuCmdU="apt-get update --fix-missing"
 ubuntuCmdUa="apt-get -y upgrade"
-ubuntuCmd1="apt-get -y install patch ntpdate unzip curl"
+ubuntuCmd1="apt-get -y install patch ntpdate unzip curl libxml2-utils xsltproc"
 ubuntuCmd2="apt-get -y install git-core"
 ubuntuCmd3="apt-get -y install openjdk-6-jdk default-jre"
 ubuntuCmd4="apt-get -y install tomcat6"
@@ -115,7 +129,7 @@ ubuntuEduroamPath="/etc/freeradius"
 ubuntuRadiusGroup="freerad"
 
 redhatCmdU="yum -y update"
-redhatCmd1="yum -y install patch ntpdate unzip curl"
+redhatCmd1="yum -y install patch ntpdate unzip curl libxslt libxml2"
 redhatCmd2="yum -y install git-core"
 redhatCmd3="yum -y install java-1.7.0-openjdk java-1.7.0-openjdk-devel"
 redhatCmd4="yum -y install tomcat6"
@@ -134,7 +148,7 @@ centosCmdFedSSO="yum -y install java-1.6.0-openjdk-devel tomcat6 mysql-server my
 
 centosCmdU="yum -y update"
 centosCmdUa="yum clean all"
-centosCmd1="yum -y install patch ntpdate unzip curl"
+centosCmd1="yum -y install patch ntpdate unzip curl libxml2"
 centosCmd2="yum -y install git"
 centosCmd3="yum -y install java-1.7.0-openjdk java-1.7.0-openjdk-devel"
 centosCmd4="yum -y install tomcat6"
@@ -167,7 +181,7 @@ requiredNonEmptyFieldseduroam="${requiredNonEmptyFieldseduroam} freeRADIUS_clcfg
 requiredNonEmptyFieldseduroam="${requiredNonEmptyFieldseduroam} freeRADIUS_ca_state freeRADIUS_ca_local freeRADIUS_ca_org_name freeRADIUS_ca_email freeRADIUS_ca_commonName" 
 requiredNonEmptyFieldseduroam="${requiredNonEmptyFieldseduroam} freeRADIUS_svr_state freeRADIUS_svr_local freeRADIUS_svr_org_name freeRADIUS_svr_email freeRADIUS_svr_commonName"
 
-requiredNonEmptyFieldsshibboleth=" appserv type idpurl ntpserver ldapserver ldapbinddn ldappass ldapbasedn subsearch fticks eptid google ninc freeRADIUS_realm freeRADIUS_svr_org_name freeRADIUS_svr_country"
+requiredNonEmptyFieldsshibboleth=" appserv type idpurl ntpserver ldapserver ldapbinddn ldappass ldapbasedn subsearch fticks eptid google ninc freeRADIUS_realm freeRADIUS_svr_org_name freeRADIUS_svr_country consentEnabled ECPEnabled iprangesallowed"
 
 requiredEnforceConnectivityFieldseduroam="smb_passwd_svr ldapserver"
 requiredEnforceConnectivityFieldsshibboleth="ldapserver"

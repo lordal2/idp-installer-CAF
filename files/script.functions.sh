@@ -16,19 +16,16 @@ setBackTitle ()
 
 }
 
-installDependanciesForInstallation ()
-{
-	${Echo} "Updating repositories and installing generic dependencies"
-	#${Echo} "Live logging can be seen by this command in another window: tail -f ${statusFile}"
-	eval ${distCmdU} &> >(tee -a ${statusFile}) 
-	eval ${distCmd1} &> >(tee -a ${statusFile})
-	${Echo} "Done."
-}
+
 
 patchFirewall()
 {
         #Replace firewalld with iptables (Centos7)
+        ${Echo} "Updating firewall settings - changing from firewalld to iptables "
+		${Echo} "Working with Distro:${dist} with version: ${redhatDist}"
+        
         if [ "${dist}" == "centos" -a "${redhatDist}" == "7" ]; then
+        ${Echo} "Detected ${dist} ${redhatDist}"
                 systemctl stop firewalld
                 systemctl mask firewalld
                 eval "yum -y install iptables-services" >> ${statusFile} 2>&1
@@ -36,6 +33,7 @@ patchFirewall()
                 systemctl start iptables
 
         elif [ "${dist}" == "redhat" -a "${redhatDist}" == "7" ]; then
+        ${Echo} "Detected ${dist} ${redhatDist}"
                 systemctl stop firewalld
                 systemctl mask firewalld
                 eval "yum -y install iptables-services" >> ${statusFile} 2>&1
@@ -43,6 +41,8 @@ patchFirewall()
                 systemctl start iptables
 
 	elif [ "${dist}" == "ubuntu" ]; then
+        ${Echo} "Detected ${dist} ${redhatDist}"
+
 		DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent	
         fi
 
@@ -405,42 +405,7 @@ generatePasswordsForSubsystems ()
 
 }
 
-installEPEL() {
-	
-	if [ ! -z "`rpm -q epel-release | grep ' is not installed'`" ]; then
-			
-		${Echo} "Detected no EPEL and Jpackage, adding repos into /etc/yum.repos.d/ and updating them"	
 
-
-	cat > /etc/yum.repos.d/jpackage-generic-free.repo << EOF
-[jpackage-generic-free]
-name=JPackage generic free
-baseurl=http://ftp.heanet.ie/pub/jpackage/6.0/generic/free
-mirrorlist=http://www.jpackage.org/mirrorlist.php?dist=generic&type=free&release=6.0
-enabled=1
-gpgcheck=1
-gpgkey=http://www.jpackage.org/jpackage.asc
-EOF
-
-	cat > /etc/yum.repos.d/jpackage-generic-devel.repo << EOF
-[jpackage-generic-devel]
-name=JPackage Generic Developer
-baseurl=http://ftp.heanet.ie/pub/jpackage/6.0/generic/free
-mirrorlist=http://www.jpackage.org/mirrorlist.php?dist=generic&type=free&release=6.0
-enabled=1
-gpgcheck=1
-gpgkey=http://www.jpackage.org/jpackage.asc
-EOF
-
-	eval $redhatEpel >> ${statusFile} 2>&1
-
-else
-
-	${Echo} "Dected EPEL and JPackage EXIST on this system. Skipping this step as system already updated"
-fi
-
-
-}
 
 setHostnames() {
 	FQDN=`hostname`
@@ -646,6 +611,16 @@ mkdir -p ${certpath}
 
 }
 
+fetchLDAPCertificates ()
+{
+	# Fetch ldap cert
+	${Echo} "Fetching LDAP Certificates for ldap-server.crt used in idp.properties"
+	for loopServer in ${ldapserver}; do
+		${Echo} "QUIT" | openssl s_client -connect ${loopServer}:636 2>/dev/null | sed -ne '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' >> ${certpath}/ldap-server.crt
+	done
+
+}
+
 installCertificates()
 
 {
@@ -680,11 +655,6 @@ ${Echo} "Fetching TCS CA chain from web"
                 files="`${Echo} ${files}` ${certpath}${ccnt}.root"
                 ccnt=`expr ${ccnt} + 1`
         done
-
-	# Fetch ldap cert
-	for loopServer in ${ldapserver}; do
-		${Echo} "QUIT" | openssl s_client -connect ${loopServer}:636 2>/dev/null | sed -ne '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' >> ${certpath}/ldap-server.crt
-	done
 
 }
 
@@ -812,6 +782,10 @@ askForConfigurationData() {
 
 	if [ -z "${consentEnabled}" ]; then
 		subsearch=$(askYesNo "User consent" "Do you want to enable user consent?")
+	fi
+
+	if [ -z "${ECPEnabled}" ]; then
+		subsearch=$(askYesNo "Enable ECP" "Do you want to enable SAML2 ECP?")
 	fi
 
 
@@ -996,6 +970,30 @@ runShibbolethInstaller ()
 	       ldapDnFormat="uid=%s,${ldapbasedn}"
 	 fi
 
+#  Establish which authentication flows we have to configure
+
+idpAuthnFlowsDefault="Password"
+idpAuthnFlows=""
+
+if [ "${ECPEnabled}" = "y" -a "${type}" = "ldap" ]; then
+
+	idpAuthnFlows="${idpAuthnFlowsDefault}|RemoteUserInternal"
+	${Echo} "ECP Specific setting detected: idp.properties authn flows are now set to ldap and ECP: ${idpAuthnFlows}"
+
+elif [ "${ECPEnabled}" = "y" -a "${type}" = "cas" ]; then
+
+	idpAuthnFlows="Shibcas|RemoteUserInternal"
+	${Echo} "ECP Specific setting detected: idp.properties authn flows are now set to CAS and ECP: ${idpAuthnFlows}"
+
+else
+	
+	idpAuthnFlows="${idpAuthnFlowsDefault}"
+	${Echo} "idp.properties authn flows are set to the default use of password : ${idpAuthnFlows}"
+
+fi
+
+
+#  Auth flows part 2: what do we need to set for the installation?
 
 	if [ "${type}" = "ldap" ]; then
 
@@ -1053,6 +1051,128 @@ EOM
 
 }
 
+
+enableStatusMonitoring() {
+
+	${Echo} "enableStatusMonitoring: Processing started"
+
+	# these are the defaults provided for Shibboleth
+	defaultMonitoringIPs="127.0.0.1/32 ::1/128"
+
+	# set the range to process but if empty, assign default range of localhost ipv4, ipv6
+	rangeToProcess="${iprangesallowed-$defaultMonitoringIPs}"
+	
+	${Echo} "enableStatusMonitoring: Enabling Status Monitoring from the following IP ranges ${rangeToProcess}"
+	declare -a myips=(${rangeToProcess})
+	# take range as a bash array, and then join with a comma, suppressing the last one
+	myRanges=`echo $(printf "'%s',"  "${myips[@]}")|sed 's/\(.*\),/\1/'`
+	
+	${Echo} "enableStatusMonitoring: Backing up original and applying our template to idp.home/conf/access-control.xml"
+
+	# make backup
+	cp /opt/shibboleth-idp/conf/access-control.xml /opt/shibboleth-idp/conf/access-control.xml.b4.replacement
+	# Overlay the template file 
+	cp ${Spath}/prep/shibboleth/conf/access-control.xml.template /opt/shibboleth-idp/conf/access-control.xml
+
+	# Apply the ranges to idp.properties
+	${Echo} "enableStatusMonitoring: Appending Status Monitoring to idp.properties as idp.status.ipranges=${myRanges}"
+	echo "idp.status.ipranges=${myRanges}" >> /opt/shibboleth-idp/conf/idp.properties
+	
+	${Echo} "enableStatusMonitoring: Processing completed"
+
+
+
+}
+
+enableECPUpdateIdPWebXML ()
+{
+		${Echo} "ECP Step: Update the web.xml of the idp and rebuild"
+		${Echo} "ECP Step: make backup of web.xml"
+		webXML="web.xml"
+		webAppWEBINFOverride="/opt/shibboleth-idp/edit-webapp/WEB-INF"
+		webAppWEBINF="/opt/shibboleth-idp/webapp/WEB-INF"
+		# set to the overridden one provided it exists
+		tgtFileToUpdate="${webAppWEBINFOverride}/${webXML}"
+		tgtFileToUpdateBackup="${tgtFileToUpdate}.orig"
+
+		# expected entry conditions of this if-then-else and subsequent logic block:
+		# A. users and this code who touch web.xml will place file in Shibboleth edit-webapp location
+		# B. syntactically the file will have the closing XML tag on the very last line (no extra spaces)
+		# C. regardless of the use of CAS (which places the web.xml in the override location) we will pivot around overriding existing web.xml
+		# D. the function enableECPUpdateIdPWebXML is executed after the detection and manipulation of the items for CAS
+		# E.  the overriden web.xml is syntactically correct (we validate after processing but will not validate before)
+		if [ -s "${tgtFileToUpdate}" ]; then
+				${Echo} "ECP Step: CAS is your AuthN technique, web.xml being manipulated:${tgtFileToUpdate}"
+		else				
+				${Echo} "ECP Step: Regular Shibboleth AuthN detected, web.xml being cloned from webapp/WEB-INF into edit-webapp/WEB-INF"
+				cp ${webAppWEBINF}/${webXML} ${webAppWEBINFOverride}
+		fi
+
+		# make the backup
+		cp ${tgtFileToUpdate} ${tgtFileToUpdateBackup}
+
+
+		${Echo} "ECP Step: modify web.xml to enable ECP features of jetty container"
+			#  NOTE: The use of the greater than overwrites the file web.xml and we cat the fragment to complete it.
+			#  this is intentional			
+			head -n -1 ${tgtFileToUpdateBackup} > ${tgtFileToUpdate}
+			cat ${Spath}/prep/jetty/web.xml.fragment.template >> ${tgtFileToUpdate}
+		${Echo} "ECP Step: modifications done, attempting to validate web.xml as sane XML"
+
+		mytest=`/usr/bin/xmllint ${tgtFileToUpdate} > /dev/null 2>&1`
+		# $? is the most recent foreground pipeline exit status.  If it's ok, we did our job right.
+		isWebXMLOK=$?
+
+        if [ "${isWebXMLOK}" -ne 0 ]; then
+			${Echo} "ECP Step: RUH-OH! web.xml failed to validate via xmllint. saving to web.xml.failed and reverting to original"
+			cp ${tgtFileToUpdate} ${tgtFileToUpdate}.failed
+			cp ${tgtFileToUpdateBackup} ${tgtFileToUpdate}
+			${Echo} "ECP Step: RUH-OH! manual intervention required for ECP to work, but regular SSO operations should be ok."
+				
+        else
+			${Echo} "ECP Step: web.xml validates via xmllint, good to proceed."
+  
+        fi
+		${Echo} "ECP Step: Proceeding to rebuilding the war and deploying"
+ 		/opt/shibboleth-idp/bin/build.sh -Didp.target.dir=/opt/shibboleth-idp
+
+
+}
+
+enableECP ()
+
+{
+
+	# Based off of: https://wiki.shibboleth.net/confluence/display/IDP30/ECPConfiguration
+
+
+	if [ "${ECPEnabled}" = "y" ]; then
+	
+		${Echo} "ECP Enabled is yes, processing ECP steps"
+
+
+		${Echo} "ECP Step: Adding in JAAS connector in idp.home/conf/authn/jaas.config"
+		jaasConfigFile="/opt/shibboleth-idp/conf/authn/jaas.config"
+		
+		ldapUserFilter="${attr_filter}={user}"
+
+		cat ${Spath}/${prep}/jaas.config.template \
+			| sed -re "s#LdApUrI#${ldapurl}#;s/LdApBaSeDn/${ldapbasedn}/;s/SuBsEaRcH/${subsearch}/;s/LdApCrEdS/${ldapbinddn}/;s/LdApPaSsWoRd/${ldappass}/;s/LdApUsErFiLtEr/${ldapUserFilter}/;s/LdApSsL/${ldapSSL}/;s/LdApTlS/${ldapStartTLS}/" \
+			> ${jaasConfigFile}
+
+		${Echo} "ECP Step: ensure jetty:jetty owns idp.home/conf/authn/jaas.config"
+		chown jetty:jetty ${jaasConfigFile}
+
+
+		enableECPUpdateIdPWebXML
+
+	else
+				${Echo} "ECP Enabled is disabled, skipping  idp.home/conf/authn/jaas.config processing"
+
+	fi
+
+
+}
 
 configShibbolethSSLForLDAPJavaKeystore()
 
@@ -1139,7 +1259,15 @@ configContainerSSLServerKey()
                 if [ ! -d "/opt/shibboleth-idp/credentials/" ]; then
                         mkdir /opt/shibboleth-idp/credentials/
                 fi
+
+                ${Echo} "Self-signed webserver cert/key generated and placed in PKCS12 format in ${httpsP12} for port 443 usage"
                 openssl pkcs12 -export -in ${certpath}server.crt -inkey ${certpath}server.key -out ${httpsP12} -name container -passout pass:${httpspass}
+        
+    			${Echo} "Loading self-signed webserver cert: ${certpath}server.crt into ${javaCAcerts} to permit TLS port 443 connections"
+
+				svrSubject=`openssl x509 -subject -noout -in ${certpath}server.crt | awk -F= '{print $NF}'`
+                ${keytool} -import -noprompt -alias "${svrSubject}" -file ${certpath}server.crt -keystore ${javaCAcerts} -storepass changeit >> ${statusFile} 2>&1
+
         fi
 }
 
@@ -1368,7 +1496,58 @@ fi
 
 }
 
+jettySetupSetDefaults ()
+{
 
+ ${Echo} "jettySetup:jettySetupSetDefaults: Adding file /etc/default/jetty for java home and options"
+
+
+        # ensure Jetty has proper startup environment for Java for all platforms
+        jettyDefaults="/etc/default/jetty"
+        jEnvString="export JAVA_HOME=${JAVA_HOME}"
+ 		jEnvPathString="export PATH=${PATH}:${JAVA_HOME}/bin"
+ 		jEnvJavaDefOpts='export JAVA_OPTIONS="-Didp.home=/opt/shibboleth-idp -Xmx1024M"'
+ 		# suppressed -XX:+PrintGCDetails because it was too noisy
+
+		${Echo} "${jEnvString}" >> ${jettyDefaults}
+       	${Echo} "${jEnvPathString}" >> ${jettyDefaults}
+       	${Echo} "${jEnvJavaDefOpts}" >> ${jettyDefaults}
+       	
+        ${Echo} "jettySetup:jettySetupSetDefaults: Updated ${jettyDefaults} to add JAVA_HOME: ${JAVA_HOME} and java to PATH"
+        ${Echo} "jettySetup:jettySetupSetDefaults: Done adding file /etc/default/jetty for java home and options"
+ 
+}
+jettySetupManageCiphers() {
+
+      ${Echo} "jettySetup:jettySetupManageCiphers: Starting to fine tuning ciphers from /opt/jetty/jetty-base/etc/jetty.xml "
+
+
+		removeCiphers="TLS_RSA_WITH_AES_128_GCM_SHA256 TLS_RSA_WITH_AES_128_CBC_SHA256 TLS_RSA_WITH_AES_128_CBC_SHA TLS_RSA_WITH_AES_256_CBC_SHA SSL_RSA_WITH_3DES_EDE_CBC_SHA"
+	for cipher in $removeCiphers; do
+		sed -i "/${cipher}/d" /opt/jetty/jetty-base/etc/jetty.xml
+	done
+
+	 ${Echo} "jettySetup:jettySetupManageCiphers: Ending fine tuning ciphers from /opt/jetty/jetty-base/etc/jetty.xml "
+
+
+}
+
+jettySetupPrepareBase()
+{
+	   ${Echo} "Preparing jetty-base from: ${jettyBasePath} to /opt/jetty/"
+
+    	cp -r ${jettyBasePath} /opt/jetty/
+
+    	# regardless of jetty version, ensure there's a log and tmp directory like there was in Shib 3.1.2
+    	# if it is idp v3.1.2, these steps are redundant and the chown on the files will happen in the setup
+
+        mkdir -p /opt/jetty/jetty-base/logs
+        mkdir -p /opt/jetty/jetty-base/tmp
+        
+        
+    
+
+}
 jettySetup() {
 
         #Installing a specific version of Jetty
@@ -1392,6 +1571,9 @@ jettySetup() {
 
         #jetty9File=`curl -s ${jettyBaseURL} | grep -oP "(?>)jetty-distribution.*tar.gz(?=&)"`
         
+        	   ${Echo} "jettySetup: Starting Jetty servlet container setup"
+
+
 
 		jetty9Path=`basename ${jetty9File}  .tar.gz`
 		jetty9URL="${jettyBaseURL}${jetty9File}"
@@ -1408,10 +1590,15 @@ jettySetup() {
 
         # Manipulate Jetty configuration for the deployment
         
+
         cd /opt
         tar zxf ${downloadPath}/${jetty9File} >> ${statusFile} 2>&1
-        cp -r /opt/${shibDir}/jetty-base /opt/${jetty9Path}/
+        
+        # important to symlink as from here on in jetty to be assumed as 'there'
         ln -s /opt/${jetty9Path} /opt/jetty
+
+		jettySetupPrepareBase
+
         sed -i 's/\# JETTY_HOME/JETTY_HOME=\/opt\/jetty/g' /opt/jetty/bin/jetty.sh
         sed -i 's/\# JETTY_USER/JETTY_USER=jetty/g' /opt/jetty/bin/jetty.sh
         sed -i 's/\# JETTY_BASE/JETTY_BASE=\/opt\/jetty\/jetty-base/g' /opt/jetty/bin/jetty.sh
@@ -1431,34 +1618,24 @@ jettySetup() {
         chown jetty:jetty /opt/jetty/ -R
         chown -R jetty:jetty /opt/shibboleth-idp/
 
-        # ensure Jetty has proper startup environment for Java for all platforms
-        jettyDefaults="/etc/default/jetty"
-        jEnvString="export JAVA_HOME=${JAVA_HOME}"
- 		jEnvPathString="export PATH=${PATH}:${JAVA_HOME}/bin"
-		${Echo} "${jEnvString}" >> ${jettyDefaults}
-       	${Echo} "${jEnvPathString}" >> ${jettyDefaults}
-        ${Echo} "Updated ${jettyDefaults} to add JAVA_HOME: ${JAVA_HOME} and java to PATH"
+        jettySetupSetDefaults
+        
+        jettySetupManageCiphers
 
-	removeCiphers="TLS_RSA_WITH_AES_128_GCM_SHA256 TLS_RSA_WITH_AES_128_CBC_SHA256 TLS_RSA_WITH_AES_128_CBC_SHA TLS_RSA_WITH_AES_256_CBC_SHA SSL_RSA_WITH_3DES_EDE_CBC_SHA"
-	for cipher in $removeCiphers; do
-		sed -i "/${cipher}/d" /opt/jetty/jetty-base/etc/jetty.xml
-	done
+      ${Echo} "jettySetup: Ending Jetty servlet container setup"
+
 
 }
 
-
-restartJettyService ()
+applyIptablesSettings ()
 
 {
-        if [ -f /var/run/jetty.pid ]; then
-                service jetty stop
-        fi
-        service jetty start
 
         iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 443 -j ACCEPT
         iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 7443 -j ACCEPT
         iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 8443 -j ACCEPT
         iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 7443
+        iptables -t nat -I OUTPUT -p tcp -o lo --dport 443 -j REDIRECT --to-ports 7443
         
         if [ "${dist}" == "centos" -o "${dist}" == "redhat" ]; then
 		iptables-save > /etc/sysconfig/iptables
@@ -1468,6 +1645,20 @@ restartJettyService ()
 
 	service iptables restart
 
+}
+
+restartJettyService ()
+
+{
+     
+		${Echo} "Restarting Jetty to ensure everything has taken effect"
+
+        if [ -f /var/run/jetty.pid ]; then
+                service jetty stop
+        fi
+        service jetty start
+
+     
 }
 
 applyFTICKS ()
@@ -1681,7 +1872,7 @@ invokeShibbolethInstallProcessJetty9 ()
 
 	containerDist="Jetty9"
 
-	installDependanciesForInstallation
+	# This is now done in script.bootstrap.functions.sh --> installDependanciesForInstallation
 
 	# check for installed IDP
 	setVarUpgradeType
@@ -1714,7 +1905,7 @@ invokeShibbolethInstallProcessJetty9 ()
 
 	patchFirewall
 
-	# installEPEL Sept 26 - no longer needed since Maven is installed via zip
+	
 
 	[[ "${upgrade}" -ne 1 ]] && fetchAndUnzipShibbolethIdP
 
@@ -1731,6 +1922,8 @@ invokeShibbolethInstallProcessJetty9 ()
 	# Override per federation
 	installCertificates
 
+	# process certificates for LDAP connections
+	fetchLDAPCertificates
 	configShibbolethSSLForLDAPJavaKeystore
 
 	# Override per federation
@@ -1745,6 +1938,10 @@ invokeShibbolethInstallProcessJetty9 ()
 
         jettySetup
 
+	enableECP
+
+	enableStatusMonitoring
+
 	updateMachineTime
 
 	updateMachineHealthCrontab
@@ -1755,6 +1952,8 @@ invokeShibbolethInstallProcessJetty9 ()
 
 # 	load the database dump if available
 	loadDatabaseDump
+
+	applyIptablesSettings
 
 	restartJettyService
 

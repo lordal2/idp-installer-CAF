@@ -22,6 +22,10 @@ var loggingEnabled = 2;
 var generatorVersion = 'v30';
 var builddate = new Date();
 
+
+var federationMonitoringString="205.189.33.23/32 2001:410:102:1::23/128 205.189.33.55/32 2001:410:102:1::55/128";
+var defaultFederationMonitoringString="127.0.0.1/32 ::1/128";
+
 if (loggingEnabled > 1) {
     console.log('GeneratorVersion' + generatorVersion);
 }
@@ -44,6 +48,13 @@ function duplicateContactInfo() {
     }
     update(); // update to ensure the configuration is constructed properly.
 
+}
+
+function setiprangesallowed() {
+        // duplicate information to fields below
+
+        $("#iprangesallowed").val($("#iprangesallowedAdjust").val());
+        update(); // update to ensure the configuration is constructed properly.
 
 }
 
@@ -258,6 +269,8 @@ var requiredFieldKeysShibboleth = {
       "certLongC": 0,
       "selfsigned": 0,
       "consentEnabled": 0,
+      "ECPEnabled": 0,
+      "iprangesallowed": 0,
 
     "freeRADIUS_svr_country": 0,
     "freeRADIUS_svr_state": 0,
@@ -679,6 +692,9 @@ output += "certAcro=\'"+ $("#certAcro").val()+ "\'\n";
 output += "certLongC=\'"+ $("#certLongC").val()+ "\'\n";
 output += "selfsigned=\'"+ $("#selfsigned").val()+ "\'\n";
 output += "consentEnabled=\'"+ $("#consentEnabled").val()+ "\'\n";
+output += "ECPEnabled=\'"+ $("#ECPEnabled").val()+ "\'\n";
+output += "iprangesallowed=\'"+ $("#iprangesallowed").val()+ "\'\n";
+
 output += "SWAMIDcertChain=\'"+ $("#SWAMIDcertChain").val()+ "\'\n";
 
 output += "my_eduroamDomain=\'"+ $("#my_eduroamDomain").val()+ "\'\n";

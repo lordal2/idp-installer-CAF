@@ -26,27 +26,6 @@ centosCmdU="yum -y update; yum clean all"
 # -y update; yum clean all"
 
 
-configContainerSSLServerKey()
-
-{
-
-        #set up ssl store
-        if [ ! -s "${certpath}server.key" ]; then
-                ${Echo} "Generating SSL key and certificate request"
-                openssl genrsa -out ${certpath}server.key 2048 2>/dev/null
-                openssl req -new -key ${certpath}server.key -out ${certREQ} -config ${Spath}/files/openssl.cnf -subj "/CN=${certCN}/O=${certOrg}/C=${certC}"
-        fi
-        if [ "${selfsigned}" = "n" ]; then
-                ${Echo} "Put the certificate from TCS in the file: ${certpath}server.crt" >> ${messages}
-                ${Echo} "Run: openssl pkcs12 -export -in ${certpath}server.crt -inkey ${certpath}server.key -out ${httpsP12} -name container -passout pass:${httpspass}" >> ${messages}
-        else
-                openssl x509 -req -days 365 -in ${certREQ} -signkey ${certpath}server.key -out ${certpath}server.crt
-                if [ ! -d "/opt/shibboleth-idp/credentials/" ]; then
-                        mkdir /opt/shibboleth-idp/credentials/
-                fi
-                openssl pkcs12 -export -in ${certpath}server.crt -inkey ${certpath}server.key -out ${httpsP12} -name container -passout pass:${httpspass}
-        fi
-}
 
 
 installCertificates ()
@@ -55,45 +34,11 @@ installCertificates ()
 			echo -e "${my_local_override_msg}" >> ${statusFile} 2>&1
 
 			# Notes
-			# 1. CAF does not have access to TCS CA's, nor needs them. Elements have been commented out, but kept here for reference.
+			# 1. CAF does not have access to TCS CA's, nor needs them. 
+			#This step is skipped
 
+			${Echo} "CAF is not eligible for the GEANT TCS service, skipping steps by overriding function"
 
-# change to certificate path whilst doing this part
-
-# cd ${certpath}
-# ${Echo} "Fetching TCS CA chain from web"
-# 	${fetchCmd} ${certpath}/server.chain ${certificateChain}
-# 	if [ ! -s "${certpath}/server.chain" ]; then
-# 		${Echo} "Can not get the certificate chain, aborting install."
-# 		cleanBadInstall
-# 	fi
-
-# 	${Echo} "Installing TCS CA chain in java cacert keystore"
-# 	cnt=1
-# 	for i in `cat ${certpath}server.chain | sed -re 's/\ /\*\*\*/g'`; do
-# 		n=`${Echo} ${i} | sed -re 's/\*\*\*/\ /g'`
-# 		${Echo} ${n} >> ${certpath}${cnt}.root
-# 		ltest=`${Echo} ${n} | grep "END CERTIFICATE"`
-# 		if [ ! -z "${ltest}" ]; then
-# 			cnt=`expr ${cnt} + 1`
-# 		fi
-# 	done
-# 	ccnt=1
-# 	while [ ${ccnt} -lt ${cnt} ]; do
-# 		md5finger=`keytool -printcert -file ${certpath}${ccnt}.root | grep MD5 | cut -d: -f2- | sed -re 's/\s+//g'`
-# 		test=`keytool -list -keystore ${javaCAcerts} -storepass changeit | grep ${md5finger}`
-# 		subject=`openssl x509 -subject -noout -in ${certpath}${ccnt}.root | awk -F= '{print $NF}'`
-# 		if [ -z "${test}" ]; then
-# 			keytool -import -noprompt -trustcacerts -alias "${subject}" -file ${certpath}${ccnt}.root -keystore ${javaCAcerts} -storepass changeit >> ${statusFile} 2>&1
-# 		fi
-# 		files="`${Echo} ${files}` ${certpath}${ccnt}.root"
-# 		ccnt=`expr ${ccnt} + 1`
-# 	done
-
-	# Fetch ldap cert
-	for loopServer in ${ldapserver}; do
-		${Echo} "QUIT" | openssl s_client -connect ${loopServer}:636 2>/dev/null | sed -ne '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' >> ${certpath}/ldap-server.crt
-	done
 
 }
 
