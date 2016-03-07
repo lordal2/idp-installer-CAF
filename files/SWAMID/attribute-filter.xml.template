@@ -144,9 +144,6 @@
 	<AttributeRule attributeID="eduPersonPrincipalName">
 		<PermitValueRule xsi:type="ANY" />
 	</AttributeRule>
-	<AttributeRule attributeID="eduPersonEntitlement">
-		<PermitValueRule xsi:type="ANY" />
-	</AttributeRule>
 	<AttributeRule attributeID="eduPersonAssurance">
 		<PermitValueRule xsi:type="ANY" />
 	</AttributeRule>
