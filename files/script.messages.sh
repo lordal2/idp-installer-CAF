@@ -35,6 +35,10 @@ javaVer="1.8.0_65"
 jcePolicySrc="jce_policy-8.zip"
 JCEUnlimitedResponse="2147483647"
 
+# this is the java starting heap size. We put the 'M' after it upon installation
+javaMaxHeapSize="2048"
+
+
 #
 # IdP-Installer file manifest (ie the files we create for ourselves)
 
