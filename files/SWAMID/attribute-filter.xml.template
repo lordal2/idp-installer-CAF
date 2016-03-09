@@ -75,19 +75,19 @@
 		attributeValue="http://refeds.org/category/research-and-scholarship" />
 
 	<AttributeRule attributeID="displayName">
-		<PermitValueRule xsi:type="AttributeInMetadata" onlyIfRequired="false" />
+		<PermitValueRule xsi:type="ANY" />
 	</AttributeRule>
 	<AttributeRule attributeID="givenName">
-		<PermitValueRule xsi:type="AttributeInMetadata" onlyIfRequired="false" />
+		<PermitValueRule xsi:type="ANY" />
 	</AttributeRule>
 	<AttributeRule attributeID="surname">
-		<PermitValueRule xsi:type="AttributeInMetadata" onlyIfRequired="false" />
+		<PermitValueRule xsi:type="ANY" />
 	</AttributeRule>
 	<AttributeRule attributeID="email">
-		<PermitValueRule xsi:type="AttributeInMetadata" onlyIfRequired="false" />
+		<PermitValueRule xsi:type="ANY" />
 	</AttributeRule>
 	<AttributeRule attributeID="eduPersonPrincipalName">
-		<PermitValueRule xsi:type="AttributeInMetadata" onlyIfRequired="false" />
+		<PermitValueRule xsi:type="ANY" />
 	</AttributeRule>
 	<AttributeRule attributeID="eduPersonScopedAffiliation">
 		<PermitValueRule xsi:type="AND">
