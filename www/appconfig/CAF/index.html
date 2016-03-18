@@ -997,6 +997,22 @@ installer_section3_title:
                         </option>
                       </select>
                       <br>
+ Enable Research and Scholarship Entity Category support
+
+                      <img id="consentToolTip" src="../img/icon_tooltip.gif" alt="ToolTip" 
+          rel="tooltip" title="This means that your IdP will permit attribute release based on this entity category tag. The attributes released to entities with this category designation are a unique id, email, common name, and/or surname and firstname."
+           />
+                      <select id="rAndSEnabled"  onchange="updateCtx(this)" >
+                        <option name="rAndSEnabledY" value="y" selected>
+                          Yes
+                        </option>
+                        <option name="rAndSEnabledN" value="n">
+                          No
+                        </option>
+                      </select>
+                      <br>
+
+
 Enable SAML2 ECP for non-web SSO
 
                       <img id="ECPToolTip" src="../img/icon_tooltip.gif" alt="ToolTip" 

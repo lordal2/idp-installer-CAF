@@ -292,6 +292,7 @@ var requiredFieldKeysShibboleth = {
       "certLongC": 0,
       "selfsigned": 0,
       "consentEnabled": 0,
+      "rAndSEnabled": 0,
       "ECPEnabled": 0,
       "iprangesallowed": 0,
 
@@ -721,6 +722,7 @@ output += "certAcro=\'"+ $("#certAcro").val()+ "\'\n";
 output += "certLongC=\'"+ $("#certLongC").val()+ "\'\n";
 output += "selfsigned=\'"+ $("#selfsigned").val()+ "\'\n";
 output += "consentEnabled=\'"+ $("#consentEnabled").val()+ "\'\n";
+output += "rAndSEnabled=\'"+ $("#rAndSEnabled").val()+ "\'\n";
 output += "ECPEnabled=\'"+ $("#ECPEnabled").val()+ "\'\n";
 output += "iprangesallowed=\'"+ $("#iprangesallowed").val()+ "\'\n";
 

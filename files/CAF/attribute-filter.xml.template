@@ -183,6 +183,62 @@
     </AttributeRule>
 </AttributeFilterPolicy>
 
+
+<!-- ##########################################
+#
+#   Sites: Those tagged with the REFEDS.org Research and Scholarship category
+#   Purpose: Sites with this tag have been evaluated by their respective federaiton to be eligible for it and earned automatic release.
+#   Considerations: The R&S category is an internationally recognized entity category that can be reviewed here:
+#   https://refeds.org/category/research-and-scholarship
+#
+#  When enabled, ensure that tickets@canarie.ca has been notified that you have done so. 
+#  Your IdP record will receive the necessary entity category on your IdP signaling you support it.
+-->
+
+<!--IdPInstaller-releaseToRandS
+
+<AttributeFilterPolicy id="CAF-IdPInstaller-releaseToRandS">
+    <PolicyRequirementRule xsi:type="EntityAttributeExactMatch"
+        attributeName="http://macedir.org/entity-category"
+        attributeValue="http://refeds.org/category/research-and-scholarship" />
+
+    <AttributeRule attributeID="displayName">
+        <PermitValueRule xsi:type="AttributeInMetadata" onlyIfRequired="false" />
+    </AttributeRule>
+    <AttributeRule attributeID="givenName">
+        <PermitValueRule xsi:type="AttributeInMetadata" onlyIfRequired="false" />
+    </AttributeRule>
+    <AttributeRule attributeID="surname">
+        <PermitValueRule xsi:type="AttributeInMetadata" onlyIfRequired="false" />
+    </AttributeRule>
+    <AttributeRule attributeID="email">
+        <PermitValueRule xsi:type="AttributeInMetadata" onlyIfRequired="false" />
+    </AttributeRule>
+    <AttributeRule attributeID="eduPersonPrincipalName">
+        <PermitValueRule xsi:type="AttributeInMetadata" onlyIfRequired="false" />
+    </AttributeRule>
+    <AttributeRule attributeID="eduPersonScopedAffiliation">
+        <PermitValueRule xsi:type="AND">
+            <Rule xsi:type="AttributeInMetadata" onlyIfRequired="false" />
+            <Rule xsi:type="OR">
+                <Rule xsi:type="Value" value="faculty" ignoreCase="true" />
+                <Rule xsi:type="Value" value="student" ignoreCase="true" />
+                <Rule xsi:type="Value" value="staff" ignoreCase="true" />
+                <Rule xsi:type="Value" value="alum" ignoreCase="true" />
+                <Rule xsi:type="Value" value="member" ignoreCase="true" />
+                <Rule xsi:type="Value" value="affiliate" ignoreCase="true" />
+                <Rule xsi:type="Value" value="employee" ignoreCase="true" />
+                <Rule xsi:type="Value" value="library-walk-in" ignoreCase="true" />
+            </Rule>
+        </PermitValueRule>
+    </AttributeRule>
+</AttributeFilterPolicy>
+
+IdPInstaller-releaseToRandS--> 
+
+
+
+
 <!-- ##########################################
 #
 #   Site: TestShib.org

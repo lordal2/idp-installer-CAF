@@ -74,5 +74,9 @@ Common extensions
 - *.template
 
 
+## What's the practice around using SED?
+
+sed's behaviour across the various flavours of unix varies. 
+We commonly use the -i feature ('inplace') and this is slightly different depending on the variable 
 
 

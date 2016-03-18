@@ -547,14 +547,23 @@ EOM
 
 installCasClientIfEnabled() {
 
+			
 if [ "${type}" = "cas" ]; then
 
+${Echo} "$FUNCNAME: CAS is your AuthN technique, preparing to do updates"  >> ${statusFile} 2>&1
+	
 	if [ ! -f "${downloadPath}/cas-client-${casVer}-release.zip" ]; then
+		${Echo} "$FUNCNAME: fetching CAS from the web"  >> ${statusFile} 2>&1
+
 		fetchCas
 	fi
+
+	${Echo} "$FUNCNAME: unzipping cas-client-${casVer}-release.zip to /opt"  >> ${statusFile} 2>&1
+
 	unzip -qo ${downloadPath}/cas-client-${casVer}-release.zip -d /opt
 	if [ ! -s "/opt/cas-client-${casVer}/modules/cas-client-core-${casVer}.jar" ]; then
-		${Echo} "Unzip of cas-client failed, check zip file: ${downloadPath}/cas-client-${casVer}-release.zip"
+
+		${Echo} "$FUNCNAME: Unzip of cas-client failed, check zip file: ${downloadPath}/cas-client-${casVer}-release.zip"  >> ${statusFile} 2>&1
 		cleanBadInstall
 	fi
 
@@ -570,19 +579,64 @@ if [ "${type}" = "cas" ]; then
 		caslogurl=$(askString "CAS login URL" "Please input the Login URL to your CAS server (https://cas.xxx.yy/cas/login)" "${casurl}/login")
 	fi
 
+	${Echo} "$FUNCNAME: copying necessary jars into place (cas-client-core,shib-cas-autehtnicator-3.0.0) "  >> ${statusFile} 2>&1
+
 	cp /opt/cas-client-${casVer}/modules/cas-client-core-${casVer}.jar /opt/shibboleth-idp/edit-webapp/WEB-INF/lib/
 	cp ${Spath}/downloads/shib-cas-authenticator-3.0.0.jar /opt/shibboleth-idp/edit-webapp/WEB-INF/lib/
-	cp /opt/shibboleth-idp/webapp/WEB-INF/web.xml /opt/shibboleth-idp/edit-webapp/WEB-INF/
+
+	${Echo} "$FUNCNAME: enabling CAS flow - creating directory flows/authn/Shibcas and copying configs into place"  >> ${statusFile} 2>&1
 	mkdir -p /opt/shibboleth-idp/flows/authn/Shibcas
 	cp ${Spath}/${prep}/shibcas-authn-beans.xml ${Spath}/${prep}/shibcas-authn-flow.xml /opt/shibboleth-idp/flows/authn/Shibcas
 
-	patch /opt/shibboleth-idp/edit-webapp/WEB-INF/web.xml -i ${Spath}/${prep}/${shibDir}-web.xml.diff >> ${statusFile} 2>&1
+
+	${Echo} "$FUNCNAME: enabling CAS flow in conf/authn/general-authn.xml via patch command"  >> ${statusFile} 2>&1
+
 	patch /opt/shibboleth-idp/conf/authn/general-authn.xml -i ${Spath}/${prep}/${shibDir}-general-authn.xml.diff >> ${statusFile} 2>&1
 
-	/opt/shibboleth-idp/bin/build.sh -Didp.target.dir=/opt/shibboleth-idp
+
+	${Echo} "$FUNCNAME: enabling CAS flow in web.xml by copying standard web.xml into edit-webapp"  >> ${statusFile} 2>&1
+
+		cp /opt/shibboleth-idp/webapp/WEB-INF/web.xml /opt/shibboleth-idp/edit-webapp/WEB-INF/
+		local webXML="web.xml"
+		local webAppWEBINFOverride="/opt/shibboleth-idp/edit-webapp/WEB-INF"
+		local webAppWEBINF="/opt/shibboleth-idp/webapp/WEB-INF"
+		# set to the overridden one provided it exists
+		local tgtFileToUpdate="${webAppWEBINFOverride}/${webXML}"
+		local tgtFileToUpdateBackup="${tgtFileToUpdate}.orig"
+
+		local fragmentTemplate="${Spath}/prep/jetty/web.xml.fragment.template"
+
+		# make the backup of the file
+		cp ${tgtFileToUpdate} ${tgtFileToUpdateBackup}
+
+
+		${Echo} "$FUNCNAME: Begin modifying web.xml" >> ${statusFile} 2>&1
+			#  NOTE: The use of the greater than overwrites the file web.xml and we cat the fragment to complete it.
+			#  this is intentional			
+			head -n -1 ${tgtFileToUpdateBackup} > ${tgtFileToUpdate}
+			cat ${fragmentTemplate} >> ${tgtFileToUpdate}
+		${Echo} "$FUNCNAME: Modifications done, attempting to validate web.xml as sane XML" >> ${statusFile} 2>&1
+
+		local mytest=`/usr/bin/xmllint ${tgtFileToUpdate} > /dev/null 2>&1`
+		# $? is the most recent foreground pipeline exit status.  If it's ok, we did our job right.
+		local isWebXMLOK=$?
+
+        if [ "${isWebXMLOK}" -ne 0 ]; then
+			${Echo} "$FUNCNAME: RUH-OH! web.xml failed to validate via xmllint. saving to web.xml.failed and reverting to original" >> ${statusFile} 2>&1
+			cp ${tgtFileToUpdate} ${tgtFileToUpdate}.failed
+			cp ${tgtFileToUpdateBackup} ${tgtFileToUpdate}
+			${Echo} "$FUNCNAME: RUH-OH! manual intervention required for CAS to work, startup of container may fail, please investigate." >> ${statusFile} 2>&1
+				
+        else
+			${Echo} "$FUNCNAME: web.xml validates via xmllint, good to proceed." >> ${statusFile} 2>&1
+  
+        fi
+
+		${Echo} "$FUNCNAME: Proceeding to rebuilding the war and deploying" >> ${statusFile} 2>&1
+ 		/opt/shibboleth-idp/bin/build.sh -Didp.target.dir=/opt/shibboleth-idp
 
 else
-	${Echo} "Authentication type: ${type}, CAS Client Not Requested"
+	${Echo} "$FUNCNAME: Authentication type: ${type}, CAS Client Not Requested"  >> ${statusFile} 2>&1
 
 
 fi
@@ -1109,6 +1163,84 @@ addRobotsDotTxt ()
 
 }
 
+
+
+enableRAndSCategoryIfSelected ()
+{
+	# Note: This function needs to act on the attribute-filter.xml file which should be the IdP-Installer template.
+	# This means that it needs to run post template processing.
+
+	${Echo} "$FUNCNAME: Determining to enable R and S Entity Category support in the attribute-filter.xml" >> ${statusFile} 2>&1
+
+	local failExt="proposedUpdate"
+	local tgtFile="${idpConfPath}/attribute-filter.xml"
+	local tgtFileBkp="${tgtFile}.${fileBkpPostfix}"
+
+if [ "${rAndSEnabled}" = "y" ]; then
+
+	${Echo} "R and S settings are enabled, applying them to ${tgtFile} now." >> ${statusFile} 2>&1
+
+	# Make a backup of our file
+		cp "${tgtFile}" "${tgtFileBkp}"
+
+	# remove first comment tag by completing it
+	# we need to use some special sed-foo to avoid the strange complications with the bang and less than signs
+
+	${sedInplaceCmd}  -e 's&<!--IdPInstaller-releaseToRandS&<!--IdPInstaller-releaseToRandS -->&' "${tgtFile}"
+
+	# remove last comment tag by completing it
+
+	${sedInplaceCmd}  -e 's&IdPInstaller-releaseToRandS-->&<!--IdPInstaller-releaseToRandS -->&' "${tgtFile}"
+
+	#
+	# Post update testing:
+
+	# Detect zero byte file, if found, revert
+	# verify that the updates proceeded at least to a non zero byte file result
+	if [[ -s "${tgtFile}"  ]]; then
+		${Echo} "${tgtFile} update complete and non zero in size..proceeding to XML validity test" >> ${statusFile} 2>&1
+	else
+		${Echo} "$FUNCNAME: FAILED UPDATE: Issue detected. File detected as zero bytes. Reverting ${tgtFile} to originals" >> ${statusFile} 2>&1
+		${Echo} "Proposed updates atttribute-filter.xml can be found with the  ${failExt} extension" >> ${statusFile} 2>&1
+
+		# copy bad copies for latest investigation
+		cp "${tgtFile}" "${tgtFile}.${failExt}"
+
+		# revert back to original for both 
+		cp "${tgtFileBkp}" "${tgtFile}"
+
+		${Echo} "$FUNCNAME: FAILED UPDATE: Files rolled back, installation will still proceed, but check installer status.log and IdP idp-process.log, idp-warn.log for issues post startup" >> ${statusFile} 2>&1
+
+	fi
+
+	#
+	# Detect malformed XML, if found, revert.
+	local mytest=`/usr/bin/xmllint ${tgtFile} > /dev/null 2>&1`
+			# $? is the most recent foreground pipeline exit status.  If it's ok, we did our job right.
+	local isWebXMLOK=$?
+
+	if [ "${isWebXMLOK}" -ne 0 ]; then
+
+		${Echo} "$FUNCNAME:  PROBLEM: ${tgtFile} failed to validate via xmllint. saving to ${tgtFile}.${failExt} and reverting to original" >> ${statusFile} 2>&1
+		cp ${tgtFile} ${tgtFile}.${failExt}
+		cp "${tgtFileBkp}" "${tgtFile}"
+		${Echo} "$FUNCNAME: ${tgtFile} is now unchanged. Please examine it and startup logs for issues." >> ${statusFile} 2>&1
+			
+	else
+
+		${Echo} "$FUNCNAME: ${tgtFile} passed XML validation." >> ${statusFile} 2>&1
+
+	fi
+
+
+else
+	${Echo} "$FUNCNAME: R and S entity category support was not selected, skipping enabling this policy in the IdP" >> ${statusFile} 2>&1
+fi	
+${Echo} "$FUNCNAME: R and S entity category support processing done." >> $
+
+}
+
+
 updateJettyRootWebContext ()
 
 {
@@ -1404,6 +1536,9 @@ ${Echo} "Crontab work complete, current crontab: ${CRONTAB} "
 cleanupFilesRoutine ()
 {
 
+
+${Echo} "$FUNCNAME: Cleaning up working files" >> ${statusFile} 2>&1
+
 if [ "${cleanUp}" -eq 1 ]; then
 # 	remove configs with templates
 	for i in ${files}; do
@@ -1415,6 +1550,13 @@ else
 		${Echo} ${i}
 	done
 fi
+
+${Echo} "$FUNCNAME: cleaning up IdP conf directory" >> ${statusFile} 2>&1
+
+rm -f ${idpPath}/conf/*.bak
+
+
+
 
 }
 notifyUserBeforeExit()
@@ -1560,7 +1702,7 @@ jettySetupManageCiphers() {
 
 		removeCiphers="TLS_RSA_WITH_AES_128_GCM_SHA256 TLS_RSA_WITH_AES_128_CBC_SHA256 TLS_RSA_WITH_AES_128_CBC_SHA TLS_RSA_WITH_AES_256_CBC_SHA SSL_RSA_WITH_3DES_EDE_CBC_SHA"
 	for cipher in $removeCiphers; do
-		sed -i "/${cipher}/d" /opt/jetty/jetty-base/etc/jetty.xml
+		${sedInplaceCmd} "/${cipher}/d" /opt/jetty/jetty-base/etc/jetty.xml
 	done
 
 	 ${Echo} "jettySetup:jettySetupManageCiphers: Ending fine tuning ciphers from /opt/jetty/jetty-base/etc/jetty.xml "
@@ -1681,10 +1823,10 @@ jettySetup() {
 
  		${Echo} "$FUNCNAME: manipulating jetty.sh for proper settings" >> ${statusFile} 2>&1 
 
-        sed -i 's/\# JETTY_HOME/JETTY_HOME=\/opt\/jetty/g' /opt/jetty/bin/jetty.sh
-        sed -i 's/\# JETTY_USER/JETTY_USER=jetty/g' /opt/jetty/bin/jetty.sh
-        sed -i 's/\# JETTY_BASE/JETTY_BASE=\/opt\/jetty\/jetty-base/g' /opt/jetty/bin/jetty.sh
-        sed -i 's/TMPDIR:-\/tmp/TMPDIR:-\/opt\/jetty\/jetty-base\/tmp/g' /opt/jetty/bin/jetty.sh
+        ${sedInplaceCmd} 's/\# JETTY_HOME/JETTY_HOME=\/opt\/jetty/g' /opt/jetty/bin/jetty.sh
+        ${sedInplaceCmd} 's/\# JETTY_USER/JETTY_USER=jetty/g' /opt/jetty/bin/jetty.sh
+        ${sedInplaceCmd} 's/\# JETTY_BASE/JETTY_BASE=\/opt\/jetty\/jetty-base/g' /opt/jetty/bin/jetty.sh
+        ${sedInplaceCmd} 's/TMPDIR:-\/tmp/TMPDIR:-\/opt\/jetty\/jetty-base\/tmp/g' /opt/jetty/bin/jetty.sh
 
  		${Echo} "$FUNCNAME: manipulating jetty idp.ini for passphrases in jetty/jetty-base" >> ${statusFile} 2>&1 
         cat ${filesPath}/idp.ini | sed -re "s#ShIbBKeyPaSs#${pass}#;s#HtTpSkEyPaSs#${httpspass}#" > /opt/jetty/jetty-base/start.d/idp.ini
@@ -1830,30 +1972,30 @@ applyNameIDC14Settings ()
 # REVIEW1 2016-02 Legacy generators no longer needed
 # 	${Echo} "Applying NameID settings:${tgtFile}: activate the nameID generator" >> ${statusFile} 2>&1
 
-# 	sed -i  "/idp.nameid.saml2.legacyGenerator/s/^#//" "${tgtFile}"
-# 	sed -i  "/idp.nameid.saml1.legacyGenerator/s/^#//" "${tgtFile}"
+# 	${sedInplaceCmd}  "/idp.nameid.saml2.legacyGenerator/s/^#//" "${tgtFile}"
+# 	${sedInplaceCmd}  "/idp.nameid.saml1.legacyGenerator/s/^#//" "${tgtFile}"
 
 #lines 22 and 26 respectively which we'll adjust in a moment
 ${Echo} "Applying NameID settings:${tgtFile}: uncommenting sourceAttribute statement" >> ${statusFile} 2>&1
 
-	sed -i  "/idp.persistentId.sourceAttribute/s/^#//" "${tgtFile}"
+	${sedInplaceCmd}  "/idp.persistentId.sourceAttribute/s/^#//" "${tgtFile}"
 
 # this replaces the string for the attribute filter (uid/sAMAccountName) as the key element for the hash
 ${Echo} "Applying NameID settings:${tgtFile}: replaces the string for the attribute filter with ${attr_filter}" >> ${statusFile} 2>&1
 
-	sed -i  "s/changethistosomethingreal/${attr_filter}/" "${tgtFile}"	
+	${sedInplaceCmd}  "s/changethistosomethingreal/${attr_filter}/" "${tgtFile}"	
 
 # lines 26: uncomment the salt and replace it with the right thing
 # note that this is the same salt as the ePTId
 ${Echo} "Applying NameID settings:${tgtFile}: uncomment and set the salt for hashing the value" >> ${statusFile} 2>&1
 
-	sed -i  "/idp.persistentId.salt/s/^#//" "${tgtFile}"
-	sed -i  "s/changethistosomethingrandom/${esalt}/" "${tgtFile}"	
+	${sedInplaceCmd}  "/idp.persistentId.salt/s/^#//" "${tgtFile}"
+	${sedInplaceCmd}  "s/changethistosomethingrandom/${esalt}/" "${tgtFile}"	
 
 # line 31. Uncomment it to use the 'MyPersistentIdStore' it references elsewhere
 ${Echo} "Applying NameID settings:${tgtFile}: uncommenting use of MyPersistentIdStore for DB " >> ${statusFile} 2>&1
 
-	sed -i  "/idp.persistentId.store/s/^#//" "${tgtFile}"
+	${sedInplaceCmd}  "/idp.persistentId.store/s/^#//" "${tgtFile}"
 
 ${Echo} "Applying NameID settings:${tgtFile}: appending to file settings using StoredPersistentIdGenerator so DB is used to generate IDs" >> ${statusFile} 2>&1
 
@@ -2013,16 +2155,16 @@ applyEptidSettings ()
        files="`${Echo} ${files}` ${Spath}/xml/${my_ctl_federation}/eptid.add.attrCon"
        
       #REVIEW1 repStr='<!-- EPTID RESOLVER PLACEHOLDER -->'
-      #REVIEW1 sed -i -e "/^${repStr}$/r ${Spath}/xml/${my_ctl_federation}/eptid.add.resolver" -e "/^${repStr}$/d" /opt/shibboleth-idp/conf/attribute-resolver.xml
+      #REVIEW1 ${sedInplaceCmd} -e "/^${repStr}$/r ${Spath}/xml/${my_ctl_federation}/eptid.add.resolver" -e "/^${repStr}$/d" /opt/shibboleth-idp/conf/attribute-resolver.xml
 
        repStr='<!-- EPTID ATTRIBUTE CONNECTOR PLACEHOLDER -->'
-       sed -i -e "/^${repStr}$/r ${Spath}/xml/${my_ctl_federation}/eptid.add.attrCon" -e "/^${repStr}$/d" /opt/shibboleth-idp/conf/attribute-resolver.xml
+       ${sedInplaceCmd} -e "/^${repStr}$/r ${Spath}/xml/${my_ctl_federation}/eptid.add.attrCon" -e "/^${repStr}$/d" /opt/shibboleth-idp/conf/attribute-resolver.xml
 
 #REVIEW1       repStr='<!-- EPTID PRINCIPAL CONNECTOR PLACEHOLDER -->'
-#REVIEW1       sed -i -e "/^${repStr}$/r ${Spath}/xml/${my_ctl_federation}/eptid.add.princCon" -e "/^${repStr}$/d" /opt/shibboleth-idp/conf/attribute-resolver.xml
+#REVIEW1       ${sedInplaceCmd} -e "/^${repStr}$/r ${Spath}/xml/${my_ctl_federation}/eptid.add.princCon" -e "/^${repStr}$/d" /opt/shibboleth-idp/conf/attribute-resolver.xml
 
 	   repStr='<!-- EPTID FILTER PLACEHOLDER -->'
-       sed -i -e "/^${repStr}$/r ${Spath}/xml/${my_ctl_federation}/eptid.add.filter" -e "/^${repStr}$/d" /opt/shibboleth-idp/conf/attribute-filter.xml
+       ${sedInplaceCmd} -e "/^${repStr}$/r ${Spath}/xml/${my_ctl_federation}/eptid.add.filter" -e "/^${repStr}$/d" /opt/shibboleth-idp/conf/attribute-filter.xml
       
 }
 applyLDAPSettings ()
@@ -2032,7 +2174,7 @@ applyLDAPSettings ()
 
 
 		repStr='<!-- LDAP CONNECTOR PLACEHOLDER -->'
-        sed -i -e "/^${repStr}$/r ${Spath}/xml/${my_ctl_federation}/ldapconn.txt" -e "/^${repStr}$/d" /opt/shibboleth-idp/conf/attribute-resolver.xml
+        ${sedInplaceCmd} -e "/^${repStr}$/r ${Spath}/xml/${my_ctl_federation}/ldapconn.txt" -e "/^${repStr}$/d" /opt/shibboleth-idp/conf/attribute-resolver.xml
 
 
 }
@@ -2058,19 +2200,19 @@ patchShibbolethConfigs ()
     cat ${Spath}/files/${my_ctl_federation}/relying-party.xml > /opt/shibboleth-idp/conf/relying-party.xml
 
 	if [ "${consentEnabled}" = "n" ]; then
-		sed -i 's#<bean parent="Shibboleth.SSO" p:postAuthenticationFlows="attribute-release" />#<bean parent="Shibboleth.SSO" />#;s#<bean parent="SAML2.SSO" p:postAuthenticationFlows="attribute-release" />#<bean parent="SAML2.SSO" />#' /opt/shibboleth-idp/conf/relying-party.xml
+		${sedInplaceCmd} 's#<bean parent="Shibboleth.SSO" p:postAuthenticationFlows="attribute-release" />#<bean parent="Shibboleth.SSO" />#;s#<bean parent="SAML2.SSO" p:postAuthenticationFlows="attribute-release" />#<bean parent="SAML2.SSO" />#' /opt/shibboleth-idp/conf/relying-party.xml
 	fi
 
         if [ "${google}" != "n" ]; then
 	${Echo} "$FUNCNAME: enabling Google configuration settings" >> ${statusFile} 2>&1	 
 
        repStr='<!-- PLACEHOLDER DO NOT REMOVE -->'
-      sed -i -e "/^${repStr}$/r ${Spath}/xml/${my_ctl_federation}/google-filter.add" -e "/^${repStr}$/d" /opt/shibboleth-idp/conf/attribute-filter.xml
+      ${sedInplaceCmd} -e "/^${repStr}$/r ${Spath}/xml/${my_ctl_federation}/google-filter.add" -e "/^${repStr}$/d" /opt/shibboleth-idp/conf/attribute-filter.xml
 		googleRelayLine=`grep -n '</util:list>' /opt/shibboleth-idp/conf/relying-party.xml | tail -n 1 | cut -d: -f1`
 		((googleRelayLine--))
-		sed -i "${googleRelayLine}r${Spath}/xml/${my_ctl_federation}/google-relay.diff.template" /opt/shibboleth-idp/conf/relying-party.xml
+		${sedInplaceCmd} "${googleRelayLine}r${Spath}/xml/${my_ctl_federation}/google-relay.diff.template" /opt/shibboleth-idp/conf/relying-party.xml
 		googleMetaLine=`grep -n '</MetadataProvider>' /opt/shibboleth-idp/conf/metadata-providers.xml | tail -n 1 | cut -d: -f1`
-		sed -i "${googleMetaLine}i <MetadataProvider id=\"GoogleMD\" xsi:type=\"FilesystemMetadataProvider\" metadataFile=\"/opt/shibboleth-idp/metadata/google.xml\" />" /opt/shibboleth-idp/conf/metadata-providers.xml
+		${sedInplaceCmd} "${googleMetaLine}i <MetadataProvider id=\"GoogleMD\" xsi:type=\"FilesystemMetadataProvider\" metadataFile=\"/opt/shibboleth-idp/metadata/google.xml\" />" /opt/shibboleth-idp/conf/metadata-providers.xml
 
                 cat ${Spath}/xml/${my_ctl_federation}/google.xml | sed -re "s/GoOgLeDoMaIn/${googleDom}/" > /opt/shibboleth-idp/metadata/google.xml
         fi
@@ -2269,7 +2411,7 @@ invokeShibbolethInstallProcessJetty9 ()
 
 	updateJettyRootWebContext
 
-
+	enableRAndSCategoryIfSelected
 
 
 	updateMachineTime
